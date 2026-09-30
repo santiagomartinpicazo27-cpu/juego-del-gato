@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Juego del gato</title>
+<style>
+  :root {
+    --x: #ff4fa3;
+    --o: #22e1ff;
+    --oro: #ffd93d;
+    --celda: rgba(255, 255, 255, 0.09);
+    --borde: rgba(255, 255, 255, 0.25);
+    --texto: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; margin: 0; }
+  body {
+    background: linear-gradient(135deg, #2b1055 0%, #7597de 100%);
+    background-attachment: fixed;
+    color: var(--texto);
+    font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 20px 16px;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(2rem, 8vw, 3rem);
+    background: linear-gradient(90deg, var(--x), var(--oro), var(--o));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: 0.03em;
+  }
+  #estado {
+    margin: 0;
+    min-height: 1.6em;
+    font-size: 1.3rem;
+    font-weight: bold;
+  }
+  #tablero {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: min(90vw, 380px);
+    aspect-ratio: 1;
+  }
+  .celda {
+    background: var(--celda);
+    border: 2px solid var(--borde);
+    border-radius: 16px;
+    color: var(--texto);
+    font-family: inherit;
+    font-size: clamp(3rem, 15vw, 5rem);
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .celda:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.05);
+  }
+  .celda:focus-visible { outline: 3px solid var(--oro); outline-offset: 3px; }
+  .celda:disabled { cursor: default; }
+  .celda.X { color: var(--x); text-shadow: 0 0 14px var(--x); animation: pop 0.25s; }
+  .celda.O { color: var(--o); text-shadow: 0 0 14px var(--o); animation: pop 0.25s; }
+  .celda.ganadora {
+    background: rgba(255, 217, 61, 0.28);
+    border-color: var(--oro);
+    box-shadow: 0 0 18px var(--oro);
+  }
+  @keyframes pop {
+    from { transform: scale(0.4); }
+    to   { transform: scale(1); }
+  }
+  #marcador { display: flex; gap: 14px; }
+  .punto {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    padding: 8px 16px;
+    text-align: center;
+    min-width: 90px;
+    font-size: 0.95rem;
+  }
+  .punto b { display: block; font-size: 1.6rem; }
+  .punto.px b { color: var(--x); }
+  .punto.po b { color: var(--o); }
+  .punto.pe b { color: var(--oro); }
+  button.accion {
+    background: linear-gradient(90deg, var(--x), var(--oro));
+    color: #2b1055;
+    border: 0;
+    border-radius: 999px;
+    padding: 12px 28px;
+    font-family: inherit;
+    font-size: 1.05rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  button.accion:hover { transform: scale(1.06); }
+  button.accion:focus-visible { outline: 3px solid var(--texto); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <h1>Juego del gato</h1>
+  <p id="estado" aria-live="polite"></p>
+  <div id="tablero"></div>
+  <div id="marcador">
+    <div class="punto px">Jugador X<b id="puntosX">0</b></div>
+    <div class="punto pe">Empates<b id="puntosE">0</b></div>
+    <div class="punto po">Jugador O<b id="puntosO">0</b></div>
+  </div>
+  <button class="accion" id="reiniciar">Nueva partida</button>
+
+<script>
+  // El tablero es un arreglo de 9 posiciones (0 a 8):
+  //  0 | 1 | 2
+  //  3 | 4 | 5
+  //  6 | 7 | 8
+  let tablero = ["", "", "", "", "", "", "", "", ""];
+  let turno = "X";
+  let juegoTerminado = false;
+  const puntos = { X: 0, O: 0, E: 0 };
+
+  // Arreglo con todas las combinaciones ganadoras
+  const combinaciones = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // filas
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // columnas
+    [0, 4, 8], [2, 4, 6]             // diagonales
+  ];
+
+  const contenedor = document.getElementById("tablero");
+  const estado = document.getElementById("estado");
+  const celdas = []; // arreglo con los 9 botones
+
+  // Crear las 9 celdas
+  for (let i = 0; i < 9; i++) {
+    const boton = document.createElement("button");
+    boton.className = "celda";
+    boton.setAttribute("aria-label", "Casilla " + (i + 1));
+    boton.addEventListener("click", () => jugar(i));
+    contenedor.appendChild(boton);
+    celdas.push(boton);
+  }
+
+  function jugar(i) {
+    if (juegoTerminado || tablero[i] !== "") return;
+
+    tablero[i] = turno;
+    celdas[i].textContent = turno;
+    celdas[i].classList.add(turno);
+    celdas[i].disabled = true;
+
+    const combo = buscarGanador();
+    if (combo) {
+      juegoTerminado = true;
+      combo.forEach(pos => celdas[pos].classList.add("ganadora"));
+      estado.textContent = "¡Ganó " + turno + "!";
+      puntos[turno]++;
+      terminar();
+    } else if (!tablero.includes("")) {
+      juegoTerminado = true;
+      estado.textContent = "Empate";
+      puntos.E++;
+      terminar();
+    } else {
+      turno = turno === "X" ? "O" : "X";
+      estado.textContent = "Turno de " + turno;
+    }
+  }
+
+  // Revisa cada combinación; devuelve la ganadora o null
+  function buscarGanador() {
+    for (const [a, b, c] of combinaciones) {
+      if (tablero[a] !== "" && tablero[a] === tablero[b] && tablero[a] === tablero[c]) {
+        return [a, b, c];
+      }
+    }
+    return null;
+  }
+
+  function terminar() {
+    celdas.forEach(c => (c.disabled = true));
+    document.getElementById("puntosX").textContent = puntos.X;
+    document.getElementById("puntosO").textContent = puntos.O;
+    document.getElementById("puntosE").textContent = puntos.E;
+  }
+
+  function reiniciar() {
+    tablero = ["", "", "", "", "", "", "", "", ""];
+    turno = "X";
+    juegoTerminado = false;
+    celdas.forEach(c => {
+      c.textContent = "";
+      c.disabled = false;
+      c.className = "celda";
+    });
+    estado.textContent = "Turno de X";
+  }
+
+  document.getElementById("reiniciar").addEventListener("click", reiniciar);
+  reiniciar();
+</script>
+</body>
+</html>
